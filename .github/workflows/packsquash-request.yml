@@ -124,7 +124,7 @@ jobs:
           never_store_squash_times = true
 
           ['**/*.png']
-          max_width_and_height = 16384
+          maximum_width_and_height = 16384
           TOML_EOF
 
           echo "Generated options file:"
