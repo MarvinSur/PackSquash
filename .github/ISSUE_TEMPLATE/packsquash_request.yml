@@ -1,0 +1,71 @@
+name: "📦 PackSquash Resource Pack"
+description: Submit a Minecraft resource pack for optimization via PackSquash
+labels: ['packsquash-request']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 📦 PackSquash Resource Pack Optimization
+
+        Submit your Minecraft resource pack for optimization. The pack will be automatically
+        processed by PackSquash and the optimized ZIP will be available as a workflow artifact.
+
+        **Supported formats:** `.zip` file hosted on Dropbox.
+
+  - type: input
+    id: dropbox-link
+    attributes:
+      label: Dropbox Link
+      description: >-
+        Paste your Dropbox share link to the resource pack ZIP file.
+        Make sure the link is publicly accessible.
+      placeholder: "https://www.dropbox.com/scl/fi/xxxxx/resourcepack.zip?rlkey=xxxxx&dl=0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: zip-protection
+    attributes:
+      label: ZIP Protection Level
+      description: >-
+        Choose how much ZIP spec conformance to apply.
+        "Disregard" enables full obfuscation protection.
+      options:
+        - "Pedantic (no protection, maximum compatibility)"
+        - "High (balanced, slight obfuscation)"
+        - "Disregard (full protection, harder to extract)"
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: compression-level
+    attributes:
+      label: Compression Level
+      description: >-
+        Higher iterations = smaller file but slower processing.
+        0 = no compression (fastest, largest file).
+      options:
+        - "20 (maximum compression, slowest)"
+        - "10 (balanced)"
+        - "5 (fast)"
+        - "0 (no compression, fastest)"
+      default: 0
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: extra-options
+    attributes:
+      label: Extra Options
+      options:
+        - label: "Enable size-increasing obfuscation (extra protection, slightly bigger file)"
+        - label: "Recompress already-compressed files (PNG, audio — slower but smaller)"
+        - label: "Skip pack icon (remove pack.png)"
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional Notes
+      description: Any extra information about your resource pack.
+      placeholder: "e.g., This pack targets Minecraft 1.20.4, contains custom models, etc."

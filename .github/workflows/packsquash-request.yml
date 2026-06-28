@@ -1,0 +1,234 @@
+name: "📦 PackSquash Resource Pack"
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  packsquash:
+    name: Optimize Resource Pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Only run on issues with the packsquash-request label
+    if: contains(github.event.issue.labels.*.name, 'packsquash-request')
+
+    env:
+      PACKSQUASH_SYSTEM_ID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔍 Parse issue body
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body;
+
+            // Extract Dropbox link
+            const linkMatch = body.match(/https:\/\/(?:www\.)?dropbox\.com\/[^\s\r\n)]+/);
+            if (!linkMatch) {
+              core.setFailed('No valid Dropbox link found in the issue body.');
+              return;
+            }
+            let dropboxUrl = linkMatch[0];
+
+            // Convert Dropbox share link to direct download
+            dropboxUrl = dropboxUrl.replace(/dl=0/, 'dl=1').replace(/\?$/, '');
+            if (!dropboxUrl.includes('dl=1')) {
+              dropboxUrl += (dropboxUrl.includes('?') ? '&' : '?') + 'dl=1';
+            }
+            core.setOutput('dropbox_url', dropboxUrl);
+
+            // Extract ZIP protection level
+            let zipSpec = 'pedantic';
+            if (body.includes('Disregard')) {
+              zipSpec = 'disregard';
+            } else if (body.includes('High')) {
+              zipSpec = 'high';
+            }
+            core.setOutput('zip_spec', zipSpec);
+
+            // Extract compression level
+            let compressionMatch = body.match(/(\d+) \(.*compression|fast/);
+            let compression = '20';
+            if (compressionMatch) {
+              compression = compressionMatch[1];
+            }
+            core.setOutput('compression', compression);
+
+            // Extract extra options
+            const sizeObfuscation = body.includes('[X] Enable size-increasing') || body.includes('[x] Enable size-increasing');
+            const recompress = body.includes('[X] Recompress') || body.includes('[x] Recompress');
+            const skipIcon = body.includes('[X] Skip pack icon') || body.includes('[x] Skip pack icon');
+
+            core.setOutput('size_obfuscation', sizeObfuscation.toString());
+            core.setOutput('recompress', recompress.toString());
+            core.setOutput('skip_icon', skipIcon.toString());
+
+            console.log(`Dropbox URL: ${dropboxUrl}`);
+            console.log(`ZIP Spec: ${zipSpec}`);
+            console.log(`Compression: ${compression}`);
+            console.log(`Size Obfuscation: ${sizeObfuscation}`);
+            console.log(`Recompress: ${recompress}`);
+            console.log(`Skip Icon: ${skipIcon}`);
+
+      - name: 💬 Comment processing started
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '⏳ **PackSquash is processing your resource pack...**\n\nThis may take a few minutes depending on the pack size and compression settings.\n\n| Setting | Value |\n|---------|-------|\n| ZIP Protection | `${{ steps.parse.outputs.zip_spec }}` |\n| Compression Iterations | `${{ steps.parse.outputs.compression }}` |\n| Size-Increasing Obfuscation | `${{ steps.parse.outputs.size_obfuscation }}` |\n| Recompress Compressed Files | `${{ steps.parse.outputs.recompress }}` |\n| Skip Pack Icon | `${{ steps.parse.outputs.skip_icon }}` |'
+            });
+
+      - name: 📥 Download resource pack from Dropbox
+        run: |
+          mkdir -p /tmp/pack-download
+          echo "Downloading from Dropbox..."
+          curl -L -o /tmp/pack-download/resourcepack.zip "${{ steps.parse.outputs.dropbox_url }}"
+
+          # Verify it's a valid zip
+          if ! file /tmp/pack-download/resourcepack.zip | grep -qi 'zip'; then
+            echo "::error::Downloaded file is not a valid ZIP archive"
+            exit 1
+          fi
+
+          echo "Download complete. File size: $(du -h /tmp/pack-download/resourcepack.zip | cut -f1)"
+
+      - name: 📂 Extract resource pack
+        run: |
+          mkdir -p /tmp/pack-input
+          unzip -q /tmp/pack-download/resourcepack.zip -d /tmp/pack-input
+
+          # Check if the pack is nested in a subfolder (common with zipped folders)
+          # If there's only one directory and no files at root, move contents up
+          ROOT_ITEMS=$(ls /tmp/pack-input | wc -l)
+          if [ "$ROOT_ITEMS" -eq 1 ] && [ -d "/tmp/pack-input/$(ls /tmp/pack-input)" ]; then
+            SUBFOLDER=$(ls /tmp/pack-input)
+            echo "Pack is nested in folder: $SUBFOLDER — flattening..."
+            mv /tmp/pack-input/"$SUBFOLDER"/* /tmp/pack-input/ 2>/dev/null || true
+            mv /tmp/pack-input/"$SUBFOLDER"/.* /tmp/pack-input/ 2>/dev/null || true
+            rmdir /tmp/pack-input/"$SUBFOLDER" 2>/dev/null || true
+          fi
+
+          echo "Pack contents:"
+          ls -la /tmp/pack-input/
+
+          # Verify pack.mcmeta exists
+          if [ ! -f /tmp/pack-input/pack.mcmeta ]; then
+            echo "::warning::pack.mcmeta not found — this might not be a valid resource pack"
+          fi
+
+      - name: 📝 Generate PackSquash options file
+        run: |
+          cat > /tmp/packsquash-options.toml << 'TOML_EOF'
+          pack_directory = '/tmp/pack-input'
+          output_file_path = '/tmp/pack-output/optimized-pack.zip'
+
+          zip_spec_conformance_level = '${{ steps.parse.outputs.zip_spec }}'
+          size_increasing_zip_obfuscation = ${{ steps.parse.outputs.size_obfuscation }}
+          zip_compression_iterations = ${{ steps.parse.outputs.compression }}
+          recompress_compressed_files = ${{ steps.parse.outputs.recompress }}
+          skip_pack_icon = ${{ steps.parse.outputs.skip_icon }}
+          never_store_squash_times = true
+          TOML_EOF
+
+          echo "Generated options file:"
+          cat /tmp/packsquash-options.toml
+
+      - name: 📦 Install PackSquash
+        run: |
+          # Download latest PackSquash release for Linux x64
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/ComunidadAylas/PackSquash/releases/latest | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+          echo "Latest PackSquash release: $LATEST_RELEASE"
+
+          DOWNLOAD_URL="https://github.com/ComunidadAylas/PackSquash/releases/download/${LATEST_RELEASE}/packsquash-${LATEST_RELEASE#v}-x86_64-unknown-linux-gnu.tar.zst"
+          echo "Downloading from: $DOWNLOAD_URL"
+
+          curl -L -o /tmp/packsquash.tar.zst "$DOWNLOAD_URL"
+
+          # Extract — try tar with zstd support first, fallback to manual
+          mkdir -p /tmp/packsquash-bin
+          if tar --zstd -xf /tmp/packsquash.tar.zst -C /tmp/packsquash-bin 2>/dev/null; then
+            echo "Extracted with tar --zstd"
+          else
+            sudo apt-get install -y zstd > /dev/null 2>&1
+            zstd -d /tmp/packsquash.tar.zst -o /tmp/packsquash.tar
+            tar -xf /tmp/packsquash.tar -C /tmp/packsquash-bin
+          fi
+
+          chmod +x /tmp/packsquash-bin/packsquash
+          echo "PackSquash installed:"
+          /tmp/packsquash-bin/packsquash --version || true
+
+      - name: 🚀 Run PackSquash
+        run: |
+          mkdir -p /tmp/pack-output
+          /tmp/packsquash-bin/packsquash /tmp/packsquash-options.toml
+
+          echo "Output file size: $(du -h /tmp/pack-output/optimized-pack.zip | cut -f1)"
+
+      - name: 📤 Upload optimized pack as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: optimized-resourcepack
+          path: /tmp/pack-output/optimized-pack.zip
+          retention-days: 14
+
+      - name: ✅ Comment success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const stats = fs.statSync('/tmp/pack-output/optimized-pack.zip');
+            const originalStats = fs.statSync('/tmp/pack-download/resourcepack.zip');
+
+            const formatSize = (bytes) => {
+              if (bytes < 1024) return bytes + ' B';
+              if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+              return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+            };
+
+            const savings = ((1 - stats.size / originalStats.size) * 100).toFixed(1);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ **PackSquash optimization complete!**\n\n| Metric | Value |\n|--------|-------|\n| Original Size | ${formatSize(originalStats.size)} |\n| Optimized Size | ${formatSize(stats.size)} |\n| Space Savings | ${savings}% |\n\n📥 **[Download the optimized pack from the workflow artifacts](${runUrl})**\n\nThe artifact will be available for **14 days**.`
+            });
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed',
+              labels: ['packsquash-request', 'completed']
+            });
+
+      - name: ❌ Comment failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `❌ **PackSquash optimization failed.**\n\nPlease check:\n- Is the Dropbox link publicly accessible?\n- Is the file a valid ZIP archive?\n- Does the pack contain a valid \`pack.mcmeta\`?\n\n🔍 [View workflow logs](${runUrl})`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['failed']
+            });
