@@ -129,20 +129,22 @@ jobs:
 
       - name: Install PackSquash
         run: |
-          # Get the download URL for the Linux x64 binary from the latest release assets
+          # Get the correct x86_64 Linux binary URL using jq
           ASSET_URL=$(curl -s https://api.github.com/repos/ComunidadAylas/PackSquash/releases/latest \
-            | grep -o '"browser_download_url": *"[^"]*linux[^"]*"' \
-            | head -1 \
-            | cut -d'"' -f4)
+            | jq -r '.assets[] | select(.name | test("x86_64.*linux.*gnu")) | select(.name | test("\\.deb$") | not) | .browser_download_url' \
+            | head -1)
 
-          if [ -z "$ASSET_URL" ]; then
-            echo "::error::Could not find Linux binary in latest release"
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            echo "::error::Could not find x86_64 Linux binary in latest release"
+            echo "Available assets:"
+            curl -s https://api.github.com/repos/ComunidadAylas/PackSquash/releases/latest | jq -r '.assets[].name'
             exit 1
           fi
 
           echo "Downloading from: $ASSET_URL"
           FILENAME=$(basename "$ASSET_URL")
           curl -L -o "/tmp/$FILENAME" "$ASSET_URL"
+          echo "Downloaded: $(du -h /tmp/$FILENAME | cut -f1)"
 
           mkdir -p /tmp/packsquash-bin
 
@@ -160,7 +162,6 @@ jobs:
               unzip -q "/tmp/$FILENAME" -d /tmp/packsquash-bin
               ;;
             *)
-              # Try as raw binary
               cp "/tmp/$FILENAME" /tmp/packsquash-bin/packsquash
               ;;
           esac
@@ -175,13 +176,12 @@ jobs:
           fi
 
           chmod +x "$PACKSQUASH_BIN"
-
-          # Move to a known location if nested
           if [ "$PACKSQUASH_BIN" != "/tmp/packsquash-bin/packsquash" ]; then
             mv "$PACKSQUASH_BIN" /tmp/packsquash-bin/packsquash
           fi
 
-          echo "PackSquash installed:"
+          # Verify binary is correct architecture
+          file /tmp/packsquash-bin/packsquash
           /tmp/packsquash-bin/packsquash --version || true
 
       - name: Run PackSquash
