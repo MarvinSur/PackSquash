@@ -122,6 +122,9 @@ jobs:
           size_increasing_zip_obfuscation = ${{ steps.parse.outputs.size_obfuscation }}
           skip_pack_icon = ${{ steps.parse.outputs.skip_icon }}
           never_store_squash_times = true
+
+          ['**/*.png']
+          max_width_and_height = 16384
           TOML_EOF
 
           echo "Generated options file:"
