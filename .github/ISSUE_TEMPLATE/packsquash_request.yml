@@ -1,11 +1,11 @@
-name: "📦 PackSquash Resource Pack"
+name: PackSquash Resource Pack
 description: Submit a Minecraft resource pack for optimization via PackSquash
 labels: ['packsquash-request']
 body:
   - type: markdown
     attributes:
       value: |
-        ## 📦 PackSquash Resource Pack Optimization
+        ## PackSquash Resource Pack Optimization
 
         Submit your Minecraft resource pack for optimization. The pack will be automatically
         processed by PackSquash and the optimized ZIP will be available as a workflow artifact.
@@ -38,29 +38,12 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: compression-level
-    attributes:
-      label: Compression Level
-      description: >-
-        Higher iterations = smaller file but slower processing.
-        0 = no compression (fastest, largest file).
-      options:
-        - "20 (maximum compression, slowest)"
-        - "10 (balanced)"
-        - "5 (fast)"
-        - "0 (no compression, fastest)"
-      default: 0
-    validations:
-      required: true
-
   - type: checkboxes
     id: extra-options
     attributes:
       label: Extra Options
       options:
         - label: "Enable size-increasing obfuscation (extra protection, slightly bigger file)"
-        - label: "Recompress already-compressed files (PNG, audio — slower but smaller)"
         - label: "Skip pack icon (remove pack.png)"
 
   - type: textarea
