@@ -119,7 +119,6 @@ jobs:
           size_increasing_zip_obfuscation = ${{ steps.parse.outputs.size_obfuscation }}
           skip_pack_icon = ${{ steps.parse.outputs.skip_icon }}
           never_store_squash_times = true
-          zip_compression_iterations = 20
           TOML_EOF
 
           echo "Generated options file:"
